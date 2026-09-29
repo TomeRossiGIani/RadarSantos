@@ -1,0 +1,59 @@
+name: Gerar APK Android
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar o repositório
+        uses: actions/checkout@v4
+
+      - name: Extrair o projeto
+        run: unzip -q RadarSantos.zip
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: SantosRadar/package-lock.json
+
+      - name: Instalar dependências
+        working-directory: SantosRadar
+        run: npm ci
+
+      - name: Preparar projeto Android
+        working-directory: SantosRadar
+        run: npx expo prebuild --platform android --non-interactive
+
+      - name: Preparar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Gerar APK de teste
+        working-directory: SantosRadar/android
+        run: ./gradlew assembleDebug
+
+      - name: Guardar APK no histórico da ação
+        uses: actions/upload-artifact@v4
+        with:
+          name: RadarSantos-APK
+          path: SantosRadar/android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publicar APK para download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: RadarSantos APK ${{ github.run_number }}
+          prerelease: true
+          files: SantosRadar/android/app/build/outputs/apk/debug/app-debug.apk
