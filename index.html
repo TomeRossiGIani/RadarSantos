@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#091b31" />
+    <meta
+      name="description"
+      content="Radar Santos: mapa de referência de radares e pontos de fiscalização em Santos/SP."
+    />
+    <title>Radar Santos</title>
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23091b31'/%3E%3Cpath d='M32 12 55 52H9Z' fill='%23f8c44f'/%3E%3Cpath d='M32 23v14' stroke='%23091b31' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='44' r='3.5' fill='%23091b31'/%3E%3C/svg%3E"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIINfQJ1lMGfQH4A5AxCVHfZqD7e6jz6TM0="
+      crossorigin=""
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #eef5ff;
+        --muted: #abc0d8;
+        --navy: #091b31;
+        --navy-2: #102b4a;
+        --line: rgba(173, 205, 237, 0.2);
+        --yellow: #f8c44f;
+        --yellow-dark: #d79c16;
+        --cyan: #42d7df;
+        --danger: #ff7f6d;
+        --radius: 18px;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body { margin: 0; min-height: 100%; background: var(--navy); }
+
+      body {
+        color: var(--ink);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 16px;
+        line-height: 1.45;
+      }
+
+      button, a { font: inherit; }
+
+      button {
+        border: 0;
+        cursor: pointer;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        min-height: 100dvh;
+      }
+
+      .topbar {
+        align-items: center;
+        background: linear-gradient(120deg, #071729, #112f50);
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        gap: 16px;
+        justify-content: space-between;
+        padding: 15px clamp(16px, 3vw, 36px);
+        position: relative;
+        z-index: 2;
+      }
+
+      .brand { align-items: center; display: flex; gap: 11px; min-width: 0; }
+
+      .brand-mark {
+        align-items: center;
+        background: var(--yellow);
+        border-radius: 12px;
+        color: var(--navy);
+        display: inline-flex;
+        font-size: 22px;
+        font-weight: 900;
+        height: 38px;
+        justify-content: center;
+        width: 38px;
+      }
+
+      .brand h1 { font-size: 1.05rem; line-height: 1.1; margin: 0; }
+      .brand p { color: var(--muted); font-size: .8rem; margin: 2px 0 0; }
+
+      .location-button {
+        align-items: center;
+        background: var(--yellow);
+        border-radius: 12px;
+        color: #12223a;
+        display: inline-flex;
+        font-size: .92rem;
+        font-weight: 800;
+        gap: 8px;
+        min-height: 44px;
+        padding: 10px 14px;
+        transition: transform .16s ease, background .16s ease;
+      }
+
+      .location-button:hover { background: #ffda74; transform: translateY(-1px); }
+      .location-button:focus-visible, .secondary-button:focus-visible, .radar-card:focus-visible, a:focus-visible { outline: 3px solid var(--cyan); outline-offset: 3px; }
+
+      .main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        min-height: 0;
+      }
+
+      .map-panel { min-height: 58dvh; position: relative; }
+      #map { height: 100%; min-height: 58dvh; width: 100%; }
+
+      .map-overlay {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        left: 16px;
+        position: absolute;
+        right: 16px;
+        top: 16px;
+        z-index: 500;
+      }
+
+      .pill {
+        backdrop-filter: blur(12px);
+        background: rgba(9, 27, 49, .9);
+        border: 1px solid rgba(255,255,255,.16);
+        border-radius: 999px;
+        box-shadow: 0 8px 22px rgba(0,0,0,.18);
+        color: var(--ink);
+        font-size: .82rem;
+        font-weight: 700;
+        padding: 8px 11px;
+      }
+
+      .pill strong { color: var(--yellow); }
+
+      .status {
+        backdrop-filter: blur(14px);
+        background: rgba(9, 27, 49, .93);
+        border: 1px solid rgba(255,255,255,.14);
+        border-radius: 13px;
+        bottom: 18px;
+        box-shadow: 0 8px 28px rgba(0,0,0,.26);
+        color: var(--ink);
+        font-size: .88rem;
+        left: 16px;
+        max-width: min(420px, calc(100% - 32px));
+        padding: 11px 13px;
+        position: absolute;
+        z-index: 500;
+      }
+
+      .status[data-state="attention"] { border-color: var(--yellow); color: #fff3ca; }
+      .status[data-state="error"] { border-color: var(--danger); color: #ffd8d2; }
+
+      .sidebar {
+        background: #0c223b;
+        border-left: 1px solid var(--line);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+
+      .sidebar-header { border-bottom: 1px solid var(--line); padding: 20px 19px 14px; }
+      .eyebrow { color: var(--cyan); font-size: .75rem; font-weight: 800; letter-spacing: .08em; margin: 0 0 5px; text-transform: uppercase; }
+      .sidebar h2 { font-size: 1.18rem; margin: 0; }
+      .summary { color: var(--muted); font-size: .88rem; margin: 5px 0 0; }
+
+      .nearest {
+        background: linear-gradient(135deg, rgba(248,196,79,.16), rgba(66,215,223,.09));
+        border: 1px solid rgba(248,196,79,.3);
+        border-radius: var(--radius);
+        margin: 15px 16px 10px;
+        padding: 14px;
+      }
+
+      .nearest-label { color: var(--yellow); display: block; font-size: .74rem; font-weight: 800; letter-spacing: .065em; text-transform: uppercase; }
+      .nearest-name { display: block; font-size: 1.02rem; font-weight: 800; margin-top: 3px; }
+      .nearest-meta { color: var(--muted); display: block; font-size: .83rem; margin-top: 2px; }
+
+      .list { display: grid; gap: 8px; overflow: auto; padding: 5px 12px 14px; }
+      .radar-card {
+        background: rgba(255,255,255,.035);
+        border: 1px solid transparent;
+        border-radius: 14px;
+        color: inherit;
+        display: grid;
+        gap: 3px;
+        padding: 12px;
+        text-align: left;
+        width: 100%;
+      }
+
+      .radar-card:hover, .radar-card.is-selected { background: rgba(66,215,223,.1); border-color: rgba(66,215,223,.4); }
+      .radar-row { align-items: baseline; display: flex; gap: 8px; justify-content: space-between; }
+      .radar-name { font-size: .9rem; font-weight: 800; }
+      .radar-distance { color: var(--yellow); font-size: .82rem; font-weight: 800; white-space: nowrap; }
+      .radar-address { color: var(--muted); font-size: .78rem; }
+      .radar-tags { color: #d3e7fb; font-size: .74rem; }
+
+      .footer-note { border-top: 1px solid var(--line); color: var(--muted); font-size: .74rem; padding: 12px 17px 16px; }
+      .footer-note a { color: var(--cyan); }
+
+      .secondary-button {
+        background: rgba(255,255,255,.1);
+        border: 1px solid rgba(255,255,255,.16);
+        border-radius: 10px;
+        color: var(--ink);
+        font-size: .82rem;
+        font-weight: 750;
+        margin-top: 10px;
+        min-height: 36px;
+        padding: 7px 10px;
+      }
+
+      .leaflet-popup-content-wrapper { background: #0b233d; color: var(--ink); }
+      .leaflet-popup-tip { background: #0b233d; }
+      .leaflet-popup-content { font-family: inherit; margin: 12px 14px; }
+      .popup-title { font-weight: 800; margin: 0 0 3px; }
+      .popup-text { color: #c7dcef; font-size: .82rem; margin: 0; }
+      .popup-limit { color: var(--yellow); font-size: .84rem; font-weight: 800; margin-top: 6px; }
+
+      @media (max-width: 800px) {
+        .main { display: flex; flex-direction: column; }
+        .map-panel { min-height: 56dvh; }
+        #map { min-height: 56dvh; }
+        .sidebar { border-left: 0; border-top: 1px solid var(--line); min-height: auto; }
+        .list { max-height: 41dvh; }
+        .topbar { align-items: flex-start; }
+        .location-button { font-size: .82rem; padding: 9px 10px; }
+        .brand p { display: none; }
+      }
+
+      @media (max-width: 430px) {
+        .topbar { gap: 10px; padding: 12px 14px; }
+        .brand-mark { border-radius: 10px; height: 34px; width: 34px; }
+        .brand h1 { font-size: .97rem; }
+        .location-button { min-height: 40px; }
+        .map-overlay { left: 10px; right: 10px; top: 10px; }
+        .status { bottom: 10px; left: 10px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span aria-hidden="true" class="brand-mark">!</span>
+          <div>
+            <h1>Radar Santos</h1>
+            <p>Mapa de referência para Santos/SP</p>
+          </div>
+        </div>
+        <button class="location-button" id="location-button" type="button">
+          <span aria-hidden="true">⌖</span><span>Usar minha localização</span>
+        </button>
+      </header>
+
+      <main class="main">
+        <section aria-label="Mapa de Santos e radares" class="map-panel">
+          <div id="map" role="application" aria-label="Mapa com radares de Santos"></div>
+          <div class="map-overlay" aria-hidden="true">
+            <span class="pill"><strong id="radar-count">0</strong> pontos cadastrados</span>
+            <span class="pill">Santos/SP</span>
+          </div>
+          <p class="status" id="status" aria-live="polite" data-state="default">Toque em “Usar minha localização” para ver o radar mais próximo.</p>
+        </section>
+
+        <aside class="sidebar" aria-label="Lista de radares">
+          <div class="sidebar-header">
+            <p class="eyebrow">Próximo de você</p>
+            <h2>Radares e fiscalização</h2>
+            <p class="summary" id="summary">Os pontos estão em ordem alfabética.</p>
+          </div>
+          <div class="nearest" id="nearest-card">
+            <span class="nearest-label">Localização ainda não ativada</span>
+            <strong class="nearest-name">Veja as distâncias em tempo real</strong>
+            <span class="nearest-meta">O acesso à localização é solicitado somente no seu navegador.</span>
+          </div>
+          <div class="list" id="radar-list"></div>
+          <div class="footer-note">
+            Pontos de referência para demonstração. Confira sempre a sinalização e os limites de velocidade.
+            <a href="https://cetsantos.com.br/radares-2/" target="_blank" rel="noreferrer">Fonte: CET-Santos</a>.
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script>
+      const santosCenter = [-23.9608, -46.3336];
+      const radars = [
+        { name: "Curva da Sancap", address: "Av. Martins Fontes, altura do nº 465", lat: -23.9328, lng: -46.3712, limit: 50, kinds: ["Velocidade"], direction: "Dois sentidos" },
+        { name: "Viaduto da Santa", address: "Av. Eng. Civ. Sérgio da Costa Matte, próximo ao Viaduto da Santa", lat: -23.9475, lng: -46.3746, limit: 40, kinds: ["Velocidade"], direction: "Ponta da Praia → Centro" },
+        { name: "Monumento ao Trabalhador Portuário", address: "Av. Eng. Civ. Sérgio da Costa Matte, próximo à Rua Manoel Tourinho", lat: -23.9504, lng: -46.3719, limit: 40, kinds: ["Velocidade"], direction: "Centro → Ponta da Praia" },
+        { name: "Pedro de Toledo × Conselheiro Nébias", address: "Rua Governador Pedro de Toledo x Av. Conselheiro Nébias", lat: -23.9632, lng: -46.3335, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"] },
+        { name: "Galeão Carvalhal × Canal 3", address: "Rua Galeão Carvalhal x Av. Washington Luís", lat: -23.9789, lng: -46.3252, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"] },
+        { name: "Jovino de Mello × João Fraccaroli", address: "Av. Jovino de Mello x Rua João Fraccaroli", lat: -23.9443, lng: -46.3897, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { name: "Emissário Submarino", address: "Av. Presidente Wilson, próximo ao Emissário Submarino", lat: -23.9692, lng: -46.3552, limit: 50, kinds: ["Velocidade"], direction: "Dois sentidos" },
+        { name: "Galeria AD Moreira", address: "Av. Presidente Wilson, entre R. Marcílio Dias e R. Quintino Bocaiúva", lat: -23.9709, lng: -46.3418, limit: 50, kinds: ["Velocidade"], direction: "Dois sentidos" },
+        { name: "Vicente de Carvalho × Rua da Paz", address: "Av. Vicente de Carvalho, próximo à Rua da Paz", lat: -23.9785, lng: -46.3207, limit: 50, kinds: ["Velocidade"], direction: "Dois sentidos" },
+        { name: "Francisco Glycério × Vidal Sion", address: "Av. General Francisco Glycério / Rua Vidal Sion", lat: -23.9611, lng: -46.3418, limit: 50, kinds: ["Velocidade"], direction: "Ponta da Praia → José Menino" },
+        { name: "Gercino Hugo Caparelli", address: "R. Gercino Hugo Caparelli, próximo à R. Yara Nascimento Santini", lat: -23.9478, lng: -46.3892, limit: 40, kinds: ["Velocidade"] },
+        { name: "Eng. Manuel Ferramenta Jr.", address: "Av. Eng. Manuel Ferramenta Jr., próximo ao nº 228", lat: -23.9533, lng: -46.3841, limit: 40, kinds: ["Velocidade"], direction: "Dois sentidos" },
+        { name: "Descida do Morro Nova Cintra", address: "Av. Pref. Dr. Antônio Manoel de Carvalho, descida do Morro Nova Cintra", lat: -23.9513, lng: -46.3554, limit: 30, kinds: ["Velocidade"] },
+        { name: "Nilo Peçanha, Nova Cintra", address: "Av. Dr. Nilo Peçanha, próximo à Av. Pref. Dr. Antônio Manoel de Carvalho", lat: -23.9532, lng: -46.3547, limit: 40, kinds: ["Velocidade"] },
+        { name: "Praça Palmares", address: "Av. Affonso Penna, nº 170 / 176", lat: -23.9782, lng: -46.3269, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { name: "Bernardino de Campos × Joaquim Távora", address: "Av. Bernardino de Campos x Rua Joaquim Távora", lat: -23.9673, lng: -46.3345, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres", "Conversão proibida"], direction: "Dois sentidos" },
+        { name: "Senador Feijó × Rangel Pestana", address: "Av. Senador Feijó x Av. Rangel Pestana", lat: -23.9508, lng: -46.3374, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { name: "Nossa Senhora de Fátima, 400", address: "Av. Nossa Senhora de Fátima, nº 400", lat: -23.9397, lng: -46.3756, limit: 40, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { name: "Martins Fontes × Pio XII", address: "Av. Martins Fontes, próximo à Rua Pio XII", lat: -23.9367, lng: -46.3718, limit: 50, kinds: ["Velocidade", "Semáforo", "Caminhões"], direction: "Dois sentidos" },
+        { name: "Sérgio C. Matte, Praça Iguatemy", address: "Av. Eng. Civ. Sérgio C. Matte, próximo à Praça Iguatemy Martins", lat: -23.9518, lng: -46.3727, limit: 60, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Ponta da Praia → Centro" },
+        { name: "Bartholomeu de Gusmão × Cel. Montenegro", address: "Av. Bartholomeu de Gusmão x Av. Cel. Joaquim Montenegro", lat: -23.9911, lng: -46.3113, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { name: "Bartholomeu de Gusmão, 108", address: "Av. Bartholomeu de Gusmão, em frente ao nº 108", lat: -23.9901, lng: -46.3162, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { name: "Waldemar Leão × Rangel Pestana", address: "Av. Dr. Waldemar Leão x Av. Rangel Pestana", lat: -23.9463, lng: -46.3519, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { name: "Glycério × Sen. Pinheiro Machado", address: "Av. Francisco Glycério x Av. Senador Pinheiro Machado", lat: -23.9622, lng: -46.3472, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres", "Conversão proibida"], direction: "Dois sentidos" },
+        { name: "Viaduto Paulo Gomes Barbosa", address: "Acesso ao viaduto Paulo Gomes Barbosa, entrada da cidade", lat: -23.9361, lng: -46.3742, limit: 40, kinds: ["Velocidade", "Caminhões"] },
+        { name: "Presidente Wilson × Sen. Pinheiro Machado", address: "Av. Presidente Wilson x Av. Senador Pinheiro Machado", lat: -23.9694, lng: -46.3495, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { name: "Bernardino de Campos × Carvalho de Mendonça", address: "Av. Bernardino de Campos x Rua Carvalho de Mendonça", lat: -23.9688, lng: -46.3346, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres", "Conversão proibida"], direction: "Dois sentidos" },
+        { name: "João Pessoa × Senador Feijó", address: "Rua João Pessoa x Av. Senador Feijó", lat: -23.9537, lng: -46.3338, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres", "Caminhões"] },
+        { name: "Eduardo Alves, 186", address: "Rua Eduardo Alves, próximo ao nº 186", lat: -23.9453, lng: -46.3916, kinds: ["Caminhões"] }
+      ];
+
+      const map = L.map("map", { zoomControl: false }).setView(santosCenter, 13);
+      L.control.zoom({ position: "bottomright" }).addTo(map);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "© OpenStreetMap contributors"
+      }).addTo(map);
+
+      const markers = new Map();
+      let userPosition = null;
+      let userMarker = null;
+      let userAccuracy = null;
+      let watchId = null;
+      let selectedRadar = null;
+      const list = document.getElementById("radar-list");
+      const status = document.getElementById("status");
+      const summary = document.getElementById("summary");
+      const nearestCard = document.getElementById("nearest-card");
+      const locationButton = document.getElementById("location-button");
+      document.getElementById("radar-count").textContent = radars.length;
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#039;", '"': "&quot;" }[char]));
+      }
+
+      function popupHtml(radar) {
+        const limit = radar.limit ? `${radar.limit} km/h` : "Fiscalização";
+        const direction = radar.direction ? ` · ${escapeHtml(radar.direction)}` : "";
+        return `<p class="popup-title">${escapeHtml(radar.name)}</p><p class="popup-text">${escapeHtml(radar.address)}</p><p class="popup-text">${escapeHtml(radar.kinds.join(" · "))}${direction}</p><p class="popup-limit">${limit}</p>`;
+      }
+
+      function distanceInMeters(a, b) {
+        const toRadians = (degree) => degree * Math.PI / 180;
+        const earthRadius = 6371000;
+        const dLat = toRadians(b.lat - a.lat);
+        const dLng = toRadians(b.lng - a.lng);
+        const startLat = toRadians(a.lat);
+        const endLat = toRadians(b.lat);
+        const c = 2 * Math.atan2(Math.sqrt(Math.sin(dLat / 2) ** 2 + Math.cos(startLat) * Math.cos(endLat) * Math.sin(dLng / 2) ** 2), Math.sqrt(1 - (Math.sin(dLat / 2) ** 2 + Math.cos(startLat) * Math.cos(endLat) * Math.sin(dLng / 2) ** 2)));
+        return earthRadius * c;
+      }
+
+      function formatDistance(meters) {
+        if (meters < 1000) return `${Math.round(meters)} m`;
+        return `${(meters / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km`;
+      }
+
+      function setStatus(message, state = "default") {
+        status.textContent = message;
+        status.dataset.state = state;
+      }
+
+      function radarWithDistance() {
+        return radars.map((radar) => ({ ...radar, distance: userPosition ? distanceInMeters(userPosition, radar) : null }));
+      }
+
+      function drawList() {
+        const items = radarWithDistance().sort((a, b) => userPosition ? a.distance - b.distance : a.name.localeCompare(b.name, "pt-BR"));
+        list.replaceChildren();
+        items.forEach((radar) => {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.className = `radar-card${selectedRadar === radar.name ? " is-selected" : ""}`;
+          item.setAttribute("aria-label", `Abrir ${radar.name} no mapa`);
+          const row = document.createElement("span");
+          row.className = "radar-row";
+          const name = document.createElement("span");
+          name.className = "radar-name";
+          name.textContent = radar.name;
+          row.append(name);
+          if (radar.distance !== null) {
+            const distance = document.createElement("span");
+            distance.className = "radar-distance";
+            distance.textContent = formatDistance(radar.distance);
+            row.append(distance);
+          }
+          const address = document.createElement("span");
+          address.className = "radar-address";
+          address.textContent = radar.address;
+          const tags = document.createElement("span");
+          tags.className = "radar-tags";
+          tags.textContent = radar.limit ? `${radar.limit} km/h · ${radar.kinds.join(" · ")}` : radar.kinds.join(" · ");
+          item.append(row, address, tags);
+          item.addEventListener("click", () => focusRadar(radar));
+          list.append(item);
+        });
+      }
+
+      function updateNearest() {
+        if (!userPosition) {
+          nearestCard.innerHTML = '<span class="nearest-label">Localização ainda não ativada</span><strong class="nearest-name">Veja as distâncias em tempo real</strong><span class="nearest-meta">O acesso à localização é solicitado somente no seu navegador.</span>';
+          summary.textContent = "Os pontos estão em ordem alfabética.";
+          return;
+        }
+        const nearest = radarWithDistance().sort((a, b) => a.distance - b.distance)[0];
+        const attention = nearest.distance <= 500;
+        nearestCard.innerHTML = `<span class="nearest-label">${attention ? "Atenção: ponto próximo" : "Ponto mais próximo"}</span><strong class="nearest-name">${escapeHtml(nearest.name)}</strong><span class="nearest-meta">${formatDistance(nearest.distance)} · ${nearest.limit ? `${nearest.limit} km/h` : "Fiscalização"}</span>`;
+        summary.textContent = `${radars.length} pontos em ordem de proximidade.`;
+        setStatus(attention ? `Atenção: ${nearest.name} a ${formatDistance(nearest.distance)}.` : `Radar mais próximo: ${nearest.name}, a ${formatDistance(nearest.distance)}.`, attention ? "attention" : "default");
+      }
+
+      function focusRadar(radar) {
+        selectedRadar = radar.name;
+        map.flyTo([radar.lat, radar.lng], Math.max(map.getZoom(), 16), { duration: .55 });
+        markers.get(radar.name).openPopup();
+        drawList();
+      }
+
+      radars.forEach((radar) => {
+        const marker = L.circleMarker([radar.lat, radar.lng], {
+          radius: 8,
+          color: "#fff6cc",
+          weight: 2,
+          fillColor: "#d79c16",
+          fillOpacity: .95
+        }).addTo(map).bindPopup(popupHtml(radar), { closeButton: true, maxWidth: 280 });
+        marker.on("click", () => {
+          selectedRadar = radar.name;
+          drawList();
+        });
+        markers.set(radar.name, marker);
+      });
+
+      function updateUserPosition(position) {
+        userPosition = { lat: position.coords.latitude, lng: position.coords.longitude };
+        const accuracy = Math.round(position.coords.accuracy);
+        if (!userMarker) {
+          userMarker = L.circleMarker([userPosition.lat, userPosition.lng], {
+            radius: 9,
+            color: "#ffffff",
+            weight: 3,
+            fillColor: "#42d7df",
+            fillOpacity: 1
+          }).addTo(map).bindPopup("<strong>Sua localização</strong>");
+          userAccuracy = L.circle([userPosition.lat, userPosition.lng], {
+            color: "#42d7df",
+            weight: 1,
+            fillColor: "#42d7df",
+            fillOpacity: .12
+          }).addTo(map);
+          map.flyTo([userPosition.lat, userPosition.lng], 15, { duration: .7 });
+        } else {
+          userMarker.setLatLng([userPosition.lat, userPosition.lng]);
+          userAccuracy.setLatLng([userPosition.lat, userPosition.lng]);
+        }
+        userAccuracy.setRadius(accuracy);
+        updateNearest();
+        drawList();
+      }
+
+      function getLocationError(error) {
+        if (error.code === error.PERMISSION_DENIED) return "A localização foi bloqueada. Libere a permissão no navegador para calcular as distâncias.";
+        if (error.code === error.POSITION_UNAVAILABLE) return "Não foi possível identificar sua posição agora. Tente novamente em alguns instantes.";
+        if (error.code === error.TIMEOUT) return "A localização demorou demais. Tente novamente.";
+        return "Não foi possível usar sua localização agora.";
+      }
+
+      function startLocation() {
+        if (!navigator.geolocation) {
+          setStatus("Este navegador não oferece localização. Veja os pontos no mapa.", "error");
+          return;
+        }
+        locationButton.disabled = true;
+        locationButton.querySelector("span:last-child").textContent = "Localizando…";
+        setStatus("Pedindo sua localização ao navegador…");
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            updateUserPosition(position);
+            locationButton.disabled = false;
+            locationButton.querySelector("span:last-child").textContent = "Atualizar localização";
+            if (watchId === null) {
+              watchId = navigator.geolocation.watchPosition(updateUserPosition, (error) => setStatus(getLocationError(error), "error"), { enableHighAccuracy: true, maximumAge: 7000, timeout: 15000 });
+            }
+          },
+          (error) => {
+            locationButton.disabled = false;
+            locationButton.querySelector("span:last-child").textContent = "Tentar localização";
+            setStatus(getLocationError(error), "error");
+          },
+          { enableHighAccuracy: true, maximumAge: 7000, timeout: 15000 }
+        );
+      }
+
+      locationButton.addEventListener("click", startLocation);
+      drawList();
+    </script>
+  </body>
+</html>
