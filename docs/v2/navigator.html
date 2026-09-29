@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#071828" />
+    <meta name="description" content="Radar Santos: trace uma rota e veja os pontos de fiscalização próximos ao caminho." />
+    <title>Radar Santos — Rotas</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #071828;
+        --panel: #0b2238;
+        --panel-2: #0e2b46;
+        --line: rgba(178, 216, 244, .17);
+        --text: #f0f7ff;
+        --muted: #a6c0d5;
+        --cyan: #57d7e8;
+        --yellow: #ffd166;
+        --orange: #f2a51a;
+        --red: #ff7764;
+        --shadow: 0 18px 48px rgba(0, 10, 22, .28);
+      }
+
+      * { box-sizing: border-box; }
+      html, body { background: var(--bg); margin: 0; min-height: 100%; }
+      body { color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.42; }
+      button, input { font: inherit; }
+      button { border: 0; cursor: pointer; }
+      button:focus-visible, input:focus-visible { outline: 3px solid rgba(87, 215, 232, .88); outline-offset: 2px; }
+
+      /* Fallback do Leaflet para redes em que a folha externa demora a carregar. */
+      .leaflet-container { background: #c4d7e1; cursor: grab; font: 12px/1.5 "Helvetica Neue", Arial, Helvetica, sans-serif; height: 100%; overflow: hidden; outline: 0; position: relative; width: 100%; }
+      .leaflet-pane, .leaflet-tile, .leaflet-marker-icon, .leaflet-marker-shadow, .leaflet-tile-container, .leaflet-pane > svg, .leaflet-pane > canvas, .leaflet-zoom-box { left: 0; position: absolute; top: 0; }
+      .leaflet-pane { z-index: 400; } .leaflet-tile-pane { z-index: 200; } .leaflet-overlay-pane { z-index: 400; } .leaflet-shadow-pane { z-index: 500; } .leaflet-marker-pane { z-index: 600; } .leaflet-tooltip-pane { z-index: 650; } .leaflet-popup-pane { z-index: 700; }
+      .leaflet-tile { display: block; pointer-events: none; } .leaflet-control { position: relative; z-index: 800; } .leaflet-top, .leaflet-bottom { pointer-events: none; position: absolute; z-index: 1000; } .leaflet-top { top: 0; } .leaflet-bottom { bottom: 0; } .leaflet-right { right: 0; } .leaflet-left { left: 0; }
+      .leaflet-control-zoom { background: #fff; border-radius: 4px; box-shadow: 0 1px 5px rgba(0,0,0,.45); } .leaflet-control-zoom a { border-bottom: 1px solid #ccc; color: #111; display: block; font-size: 20px; height: 30px; line-height: 30px; text-align: center; text-decoration: none; width: 30px; } .leaflet-control-zoom a:last-child { border-bottom: 0; } .leaflet-control-attribution { background: rgba(255,255,255,.8); color: #111; padding: 0 5px; }
+      .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: #fff; color: #222; } .leaflet-popup-content-wrapper { border-radius: 12px; box-shadow: 0 3px 14px rgba(0,0,0,.4); } .leaflet-popup-content { line-height: 1.45; margin: 13px 18px; } .leaflet-popup-tip-container { height: 20px; margin: 0 auto; overflow: hidden; position: relative; width: 40px; } .leaflet-popup-tip { height: 17px; margin: -10px auto 0; transform: rotate(45deg); width: 17px; }
+
+      .app { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 100dvh; }
+      .topbar { align-items: center; background: linear-gradient(110deg, #071828 0%, #0d2d48 100%); border-bottom: 1px solid var(--line); display: flex; gap: 20px; justify-content: space-between; padding: 15px clamp(16px, 3vw, 34px); position: relative; z-index: 20; }
+      .brand { align-items: center; display: flex; gap: 11px; min-width: 0; }
+      .brand-mark { align-items: center; background: linear-gradient(135deg, #ffe18e, #f4b724); border-radius: 13px; color: #102339; display: inline-flex; font-size: 1.25rem; font-weight: 950; height: 42px; justify-content: center; width: 42px; }
+      .brand h1 { font-size: 1.1rem; line-height: 1.1; margin: 0; }
+      .brand p { color: var(--muted); font-size: .78rem; margin: 3px 0 0; }
+      .live-chip { align-items: center; background: rgba(87, 215, 232, .09); border: 1px solid rgba(87, 215, 232, .34); border-radius: 999px; color: #c8fbff; display: inline-flex; font-size: .76rem; font-weight: 760; gap: 7px; padding: 8px 11px; }
+      .live-dot { background: #75e5c8; border-radius: 50%; box-shadow: 0 0 0 4px rgba(117, 229, 200, .12); height: 7px; width: 7px; }
+
+      .workspace { display: grid; grid-template-columns: minmax(290px, 365px) minmax(0, 1fr) minmax(290px, 340px); min-height: 0; }
+      .planner, .radar-panel { background: var(--panel); display: flex; flex-direction: column; min-height: 0; position: relative; z-index: 5; }
+      .planner { border-right: 1px solid var(--line); padding: 22px 18px 16px; }
+      .radar-panel { border-left: 1px solid var(--line); }
+      .eyebrow { color: var(--cyan); font-size: .72rem; font-weight: 850; letter-spacing: .1em; margin: 0 0 5px; text-transform: uppercase; }
+      .planner h2, .radar-panel h2 { font-size: 1.2rem; letter-spacing: -.02em; line-height: 1.15; margin: 0; }
+      .planner-intro, .panel-subtitle { color: var(--muted); font-size: .84rem; margin: 7px 0 18px; }
+
+      .route-form { display: grid; gap: 11px; }
+      .field { position: relative; }
+      .field-label { color: #cfe5f4; display: block; font-size: .71rem; font-weight: 800; letter-spacing: .08em; margin: 0 0 6px 2px; text-transform: uppercase; }
+      .input-shell { align-items: center; background: rgba(255,255,255,.05); border: 1px solid rgba(196, 228, 251, .18); border-radius: 13px; display: flex; gap: 10px; min-height: 51px; padding: 0 12px; transition: border-color .16s ease, background .16s ease; }
+      .input-shell:focus-within { background: rgba(87, 215, 232, .08); border-color: rgba(87, 215, 232, .72); }
+      .field-pin { align-items: center; border: 2px solid var(--cyan); border-radius: 50%; display: inline-flex; flex: 0 0 auto; height: 12px; justify-content: center; width: 12px; }
+      .field-pin.destination { border-color: var(--yellow); border-radius: 3px; }
+      .input-shell input { background: transparent; border: 0; color: var(--text); min-width: 0; outline: 0; padding: 11px 0; width: 100%; }
+      .input-shell input::placeholder { color: #88a7be; }
+      .suggestions { background: #10304d; border: 1px solid rgba(196, 228, 251, .2); border-radius: 12px; box-shadow: var(--shadow); display: none; left: 0; max-height: 210px; overflow: auto; padding: 5px; position: absolute; right: 0; top: calc(100% + 5px); z-index: 40; }
+      .suggestions.is-open { display: grid; }
+      .suggestion { background: transparent; border-radius: 8px; color: #eaf6ff; padding: 9px 10px; text-align: left; width: 100%; }
+      .suggestion:hover { background: rgba(87, 215, 232, .12); }
+      .suggestion strong, .suggestion span { display: block; }
+      .suggestion strong { font-size: .78rem; }
+      .suggestion span { color: #a4c1d5; font-size: .7rem; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .swap-row { display: flex; justify-content: flex-end; margin: -2px 3px 0; }
+      .swap-button { background: rgba(255,255,255,.06); border: 1px solid rgba(196, 228, 251, .17); border-radius: 8px; color: #d9efff; font-size: .75rem; font-weight: 750; padding: 6px 9px; }
+      .swap-button:hover { background: rgba(255,255,255,.11); }
+      .route-button { align-items: center; background: linear-gradient(135deg, #ffe087, #f4ba32); border-radius: 13px; color: #10243a; display: flex; font-weight: 900; justify-content: center; min-height: 51px; padding: 11px; transition: transform .16s ease, filter .16s ease; }
+      .route-button:hover { filter: brightness(1.05); transform: translateY(-1px); }
+      .route-button:disabled { cursor: wait; filter: saturate(.5); opacity: .7; transform: none; }
+      .quick-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 10px; }
+      .ghost-button { background: rgba(255,255,255,.055); border: 1px solid rgba(196, 228, 251, .15); border-radius: 11px; color: #d8ebf8; font-size: .78rem; font-weight: 740; min-height: 40px; padding: 8px 10px; }
+      .ghost-button:hover { background: rgba(87, 215, 232, .11); border-color: rgba(87, 215, 232, .36); }
+
+      .route-card { background: linear-gradient(145deg, rgba(87,215,232,.12), rgba(255,209,102,.1)); border: 1px solid rgba(87,215,232,.28); border-radius: 16px; margin-top: 22px; padding: 14px; }
+      .route-card .label { color: var(--cyan); display: block; font-size: .7rem; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+      .route-card strong { display: block; font-size: 1rem; margin-top: 4px; }
+      .route-card p { color: #c7deed; font-size: .8rem; margin: 5px 0 0; }
+      .route-card[data-state="loading"] { border-color: rgba(255,209,102,.48); }
+      .route-card[data-state="error"] { border-color: rgba(255,119,100,.58); }
+      .route-card[data-state="error"] .label { color: #ffb8ae; }
+      .how-it-works { border-top: 1px solid var(--line); color: #8facc3; font-size: .73rem; margin-top: auto; padding-top: 16px; }
+      .how-it-works b { color: #d8effd; }
+
+      .map-area { min-height: 58dvh; position: relative; }
+      #map { height: 100%; min-height: 58dvh; width: 100%; }
+      .map-top { display: flex; flex-wrap: wrap; gap: 8px; left: 16px; pointer-events: none; position: absolute; right: 16px; top: 16px; z-index: 500; }
+      .map-pill { backdrop-filter: blur(12px); background: rgba(6, 24, 41, .9); border: 1px solid rgba(255,255,255,.18); border-radius: 999px; box-shadow: 0 10px 28px rgba(0,0,0,.24); color: #eaf7ff; font-size: .76rem; font-weight: 780; padding: 8px 11px; }
+      .map-pill strong { color: var(--yellow); }
+      .map-hint { backdrop-filter: blur(12px); background: rgba(6, 24, 41, .92); border: 1px solid rgba(255,255,255,.17); border-radius: 13px; bottom: 17px; box-shadow: 0 10px 28px rgba(0,0,0,.24); color: #d8eafa; font-size: .77rem; left: 16px; max-width: min(390px, calc(100% - 32px)); padding: 10px 12px; position: absolute; z-index: 500; }
+      .map-hint[data-state="attention"] { border-color: rgba(255,209,102,.75); color: #fff1c6; }
+      .map-hint[data-state="error"] { border-color: rgba(255,119,100,.8); color: #ffd4ce; }
+      .radar-pin { align-items: center; background: #f1a91c; border: 2px solid #fff7d3; border-radius: 50%; box-shadow: 0 3px 11px rgba(0,0,0,.28); display: flex; height: 15px; justify-content: center; width: 15px; }
+      .radar-pin.is-on-route { background: #ff6654; box-shadow: 0 0 0 5px rgba(255,102,84,.22), 0 3px 12px rgba(0,0,0,.32); height: 18px; width: 18px; }
+      .start-marker, .end-marker, .user-marker { align-items: center; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 2px 9px rgba(0,0,0,.34); display: flex; height: 20px; justify-content: center; width: 20px; }
+      .start-marker { background: var(--cyan); } .end-marker { background: var(--yellow); border-radius: 5px; } .user-marker { background: #4e9cff; }
+      .popup-title { font-size: .9rem; font-weight: 850; margin: 0; } .popup-text { color: #4a5d6d; font-size: .74rem; margin: 4px 0 0; } .popup-limit { color: #a76b00; font-size: .76rem; font-weight: 850; margin: 7px 0 0; }
+
+      .radar-heading { border-bottom: 1px solid var(--line); padding: 22px 18px 15px; }
+      .route-count { background: rgba(255,209,102,.13); border: 1px solid rgba(255,209,102,.3); border-radius: 999px; color: #ffdf86; display: inline-flex; font-size: .7rem; font-weight: 850; margin-top: 12px; padding: 6px 9px; }
+      .radar-list { display: grid; gap: 8px; min-height: 0; overflow: auto; padding: 12px; }
+      .radar-card { background: rgba(255,255,255,.045); border: 1px solid rgba(183,216,239,.1); border-radius: 14px; color: inherit; display: grid; gap: 4px; padding: 12px; text-align: left; width: 100%; }
+      .radar-card:hover, .radar-card.is-selected { background: rgba(87,215,232,.1); border-color: rgba(87,215,232,.48); }
+      .radar-card.is-on-route { border-color: rgba(255,119,100,.52); }
+      .radar-row { align-items: baseline; display: flex; gap: 8px; justify-content: space-between; }
+      .radar-name { font-size: .84rem; font-weight: 850; line-height: 1.25; }
+      .radar-distance { background: rgba(255,209,102,.14); border-radius: 999px; color: #ffdc7c; font-size: .7rem; font-weight: 850; padding: 3px 6px; white-space: nowrap; }
+      .radar-address { color: #a5c0d4; font-size: .73rem; line-height: 1.35; }
+      .radar-kind { color: #d6eafb; font-size: .69rem; }
+      .empty-list { align-items: center; color: var(--muted); display: flex; font-size: .83rem; justify-content: center; min-height: 150px; padding: 24px; text-align: center; }
+      .source-note { border-top: 1px solid var(--line); color: #91afc5; font-size: .69rem; padding: 12px 17px 15px; }
+      .source-note a { color: #75e6f2; }
+
+      @media (max-width: 1080px) { .workspace { grid-template-columns: 320px minmax(0, 1fr); } .radar-panel { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--line); max-height: 300px; } .radar-heading { padding-block: 15px; } .radar-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } .source-note { display: none; } }
+      @media (max-width: 760px) { .live-chip { display: none; } .workspace { display: block; } .planner { border-right: 0; padding: 18px 14px; } .planner-intro { margin-bottom: 14px; } .route-card { margin-top: 16px; } .how-it-works { display: none; } .map-area, #map { min-height: 53dvh; } .radar-panel { border: 1px solid var(--line); border-bottom: 0; border-radius: 22px 22px 0 0; margin-top: -20px; overflow: hidden; position: relative; } .radar-heading::before { background: rgba(214,235,250,.35); border-radius: 99px; content: ""; display: block; height: 4px; margin: -6px auto 12px; width: 40px; } .radar-list { grid-template-columns: 1fr; max-height: 43dvh; } .map-top { left: 12px; right: 12px; top: 12px; } .map-hint { bottom: 28px; left: 12px; max-width: calc(100% - 24px); } }
+      @media (max-width: 430px) { .topbar { padding-inline: 14px; } .brand-mark { height: 38px; width: 38px; } .brand h1 { font-size: 1rem; } .brand p { font-size: .7rem; } .quick-row { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">!</span>
+          <div>
+            <h1>Radar Santos</h1>
+            <p>Rotas com alertas de fiscalização em Santos/SP</p>
+          </div>
+        </div>
+        <span class="live-chip"><span class="live-dot"></span>Planejador de rota</span>
+      </header>
+
+      <main class="workspace">
+        <section class="planner" aria-label="Planejar rota">
+          <p class="eyebrow">Sua viagem</p>
+          <h2>Para onde você vai?</h2>
+          <p class="planner-intro">Informe a saída e o destino. O mapa monta o trajeto e destaca os pontos de fiscalização próximos à rota.</p>
+
+          <form class="route-form" id="route-form">
+            <div class="field">
+              <label class="field-label" for="origin-input">Ponto de partida</label>
+              <div class="input-shell">
+                <span class="field-pin" aria-hidden="true"></span>
+                <input id="origin-input" autocomplete="off" placeholder="Ex.: Av. Ana Costa, Santos" required />
+              </div>
+              <div class="suggestions" id="origin-suggestions" role="listbox" aria-label="Sugestões de ponto de partida"></div>
+            </div>
+            <div class="swap-row"><button class="swap-button" id="swap-button" type="button">⇅ Inverter pontos</button></div>
+            <div class="field">
+              <label class="field-label" for="destination-input">Destino</label>
+              <div class="input-shell">
+                <span class="field-pin destination" aria-hidden="true"></span>
+                <input id="destination-input" autocomplete="off" placeholder="Ex.: Ponta da Praia, Santos" required />
+              </div>
+              <div class="suggestions" id="destination-suggestions" role="listbox" aria-label="Sugestões de destino"></div>
+            </div>
+            <button class="route-button" id="route-button" type="submit">Traçar rota e ver radares</button>
+          </form>
+
+          <div class="quick-row">
+            <button class="ghost-button" id="location-button" type="button">⌖ Usar minha localização</button>
+            <button class="ghost-button" id="clear-route-button" type="button">Limpar rota</button>
+          </div>
+
+          <section class="route-card" id="route-card" aria-live="polite" data-state="idle">
+            <span class="label">Como usar</span>
+            <strong>Escolha origem e destino</strong>
+            <p>Você verá o caminho, a distância estimada e apenas os radares próximos desse percurso.</p>
+          </section>
+
+          <p class="how-it-works"><b>Importante:</b> esta é uma rota de referência. Respeite a sinalização, os limites da via e use apps de trânsito para dados de tráfego em tempo real.</p>
+        </section>
+
+        <section class="map-area" aria-label="Mapa e rota">
+          <div id="map" role="application" aria-label="Mapa de Santos com rota e radares"></div>
+          <div class="map-top" aria-hidden="true">
+            <span class="map-pill"><strong id="radar-count">0</strong> locais da CET</span>
+            <span class="map-pill" id="route-pill">Sem rota ativa</span>
+          </div>
+          <p class="map-hint" id="map-hint" data-state="default">Digite uma origem e um destino para filtrar os radares que ficam no seu caminho.</p>
+        </section>
+
+        <aside class="radar-panel" aria-label="Alertas de radares">
+          <div class="radar-heading">
+            <p class="eyebrow">Fiscalização</p>
+            <h2 id="radar-title">Locais cadastrados</h2>
+            <p class="panel-subtitle" id="radar-summary">Relação de referência baseada na CET-Santos.</p>
+            <span class="route-count" id="route-count">Trace uma rota para filtrar</span>
+          </div>
+          <div class="radar-list" id="radar-list"></div>
+          <div class="source-note">Dados de referência da <a href="https://cetsantos.com.br/radares-2/" target="_blank" rel="noreferrer">CET-Santos</a>. Equipamentos em sentidos diferentes podem compartilhar o mesmo local no mapa.</div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script>
+      const santosCenter = [-23.9608, -46.3336];
+      // Os locais seguem a relação da CET-Santos. Coordenadas aproximadas são usadas
+      // somente para visualização do ponto na via; a rota é calculada separadamente.
+      const radars = [
+        { id: "sancap", name: "Curva da Sancap", address: "Av. Martins Fontes, altura do nº 465", lat: -23.9328, lng: -46.3712, limit: 50, kinds: ["Velocidade"], direction: "Dois sentidos" },
+        { id: "viaduto-santa", name: "Viaduto da Santa", address: "Av. Eng. Civ. Sérgio da Costa Matte, próximo ao Viaduto da Santa", lat: -23.9475, lng: -46.3746, limit: 40, kinds: ["Velocidade"], direction: "Ponta da Praia → Centro" },
+        { id: "portuario", name: "Monumento ao Trabalhador Portuário", address: "Av. Eng. Civ. Sérgio da Costa Matte, próximo à Rua Manoel Tourinho", lat: -23.9504, lng: -46.3719, limit: 40, kinds: ["Velocidade"], direction: "Centro → Ponta da Praia" },
+        { id: "pedro-toledo", name: "Pedro de Toledo × Conselheiro Nébias", address: "Rua Governador Pedro de Toledo x Av. Conselheiro Nébias", lat: -23.9632, lng: -46.3335, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"] },
+        { id: "galeao", name: "Galeão Carvalhal × Canal 3", address: "Rua Galeão Carvalhal x Av. Washington Luís", lat: -23.974226, lng: -46.321943, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"] },
+        { id: "jovino", name: "Jovino de Mello × João Fraccaroli", address: "Av. Jovino de Mello x Rua João Fraccaroli", lat: -23.9443, lng: -46.3897, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { id: "emissario", name: "Emissário Submarino", address: "Av. Presidente Wilson, próximo ao Emissário Submarino", lat: -23.9691, lng: -46.3529, limit: 50, kinds: ["Velocidade"], direction: "Dois sentidos" },
+        { id: "ad-moreira", name: "Galeria AD Moreira", address: "Av. Presidente Wilson, entre R. Marcílio Dias e R. Quintino Bocaiúva", lat: -23.9709, lng: -46.3418, limit: 50, kinds: ["Velocidade"], direction: "Dois sentidos" },
+        { id: "vicente", name: "Vicente de Carvalho × Rua da Paz", address: "Av. Vicente de Carvalho, próximo à Rua da Paz", lat: -23.975415, lng: -46.319285, limit: 50, kinds: ["Velocidade"], direction: "Dois sentidos" },
+        { id: "glycerio-vidal", name: "Francisco Glycério × Vidal Sion", address: "Av. General Francisco Glycério / Rua Vidal Sion", lat: -23.9611, lng: -46.3418, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Ponta da Praia → José Menino" },
+        { id: "gercino", name: "Gercino Hugo Caparelli", address: "R. Gercino Hugo Caparelli, próximo à R. Yara Nascimento Santini", lat: -23.9478, lng: -46.3892, limit: 40, kinds: ["Velocidade"] },
+        { id: "ferramenta", name: "Eng. Manuel Ferramenta Jr.", address: "Av. Eng. Manuel Ferramenta Jr., próximo ao nº 228", lat: -23.9533, lng: -46.3841, limit: 40, kinds: ["Velocidade"], direction: "Dois sentidos" },
+        { id: "nova-cintra", name: "Descida do Morro Nova Cintra", address: "Av. Pref. Dr. Antônio Manoel de Carvalho, descida do Morro Nova Cintra", lat: -23.9513, lng: -46.3554, limit: 30, kinds: ["Velocidade"] },
+        { id: "nilo", name: "Nilo Peçanha, Nova Cintra", address: "Av. Dr. Nilo Peçanha, próximo à Av. Pref. Dr. Antônio Manoel de Carvalho", lat: -23.9532, lng: -46.3547, limit: 40, kinds: ["Velocidade"] },
+        { id: "palmares", name: "Praça Palmares", address: "Av. Affonso Penna, nº 170 / 176", lat: -23.972693, lng: -46.324401, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { id: "joaquim-tavora", name: "Bernardino de Campos × Joaquim Távora", address: "Av. Bernardino de Campos x Rua Joaquim Távora", lat: -23.9673, lng: -46.3345, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres", "Conversão proibida"], direction: "Dois sentidos" },
+        { id: "rangel", name: "Senador Feijó × Rangel Pestana", address: "Av. Senador Feijó x Av. Rangel Pestana", lat: -23.9508, lng: -46.3374, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { id: "fatima", name: "Nossa Senhora de Fátima, 400", address: "Av. Nossa Senhora de Fátima, nº 400", lat: -23.9397, lng: -46.3756, limit: 40, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { id: "pio-xii", name: "Martins Fontes × Pio XII", address: "Av. Martins Fontes, próximo à Rua Pio XII", lat: -23.9367, lng: -46.3718, limit: 50, kinds: ["Velocidade", "Semáforo", "Caminhões"], direction: "Dois sentidos" },
+        { id: "iguatemy", name: "Sérgio C. Matte, Praça Iguatemy", address: "Av. Eng. Civ. Sérgio C. Matte, próximo à Praça Iguatemy Martins", lat: -23.9518, lng: -46.3727, limit: 60, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Ponta da Praia → Centro" },
+        { id: "montenegro", name: "Bartholomeu de Gusmão × Cel. Montenegro", address: "Av. Bartholomeu de Gusmão x Av. Cel. Joaquim Montenegro", lat: -23.988908, lng: -46.307996, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { id: "gusmao-108", name: "Bartholomeu de Gusmão, 108", address: "Av. Bartholomeu de Gusmão, em frente ao nº 108", lat: -23.986551, lng: -46.308863, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { id: "waldemar", name: "Waldemar Leão × Rangel Pestana", address: "Av. Dr. Waldemar Leão x Av. Rangel Pestana", lat: -23.9463, lng: -46.3519, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { id: "pinheiro", name: "Glycério × Sen. Pinheiro Machado", address: "Av. Francisco Glycério x Av. Senador Pinheiro Machado", lat: -23.9622, lng: -46.3472, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres", "Conversão proibida"], direction: "Dois sentidos" },
+        { id: "paulo-gomes", name: "Viaduto Paulo Gomes Barbosa", address: "Acesso ao viaduto Paulo Gomes Barbosa, entrada da cidade", lat: -23.9361, lng: -46.3742, limit: 40, kinds: ["Velocidade", "Caminhões"] },
+        { id: "presidente-wilson", name: "Presidente Wilson × Sen. Pinheiro Machado", address: "Av. Presidente Wilson x Av. Senador Pinheiro Machado", lat: -23.9694, lng: -46.3495, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres"], direction: "Dois sentidos" },
+        { id: "carvalho", name: "Bernardino de Campos × Carvalho de Mendonça", address: "Av. Bernardino de Campos x Rua Carvalho de Mendonça", lat: -23.9688, lng: -46.3346, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres", "Conversão proibida"], direction: "Dois sentidos" },
+        { id: "joao-pessoa", name: "João Pessoa × Senador Feijó", address: "Rua João Pessoa x Av. Senador Feijó", lat: -23.9537, lng: -46.3338, limit: 50, kinds: ["Velocidade", "Semáforo", "Faixa de pedestres", "Caminhões"] },
+        { id: "eduardo", name: "Eduardo Alves, 186", address: "Rua Eduardo Alves, próximo ao nº 186", lat: -23.9453, lng: -46.3916, kinds: ["Caminhões"] }
+      ];
+
+      const map = L.map("map", { zoomControl: false, preferCanvas: true }).setView(santosCenter, 13);
+      L.control.zoom({ position: "bottomright" }).addTo(map);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap contributors" }).addTo(map);
+
+      const ui = {
+        form: document.getElementById("route-form"), origin: document.getElementById("origin-input"), destination: document.getElementById("destination-input"),
+        originSuggestions: document.getElementById("origin-suggestions"), destinationSuggestions: document.getElementById("destination-suggestions"),
+        routeButton: document.getElementById("route-button"), routeCard: document.getElementById("route-card"), routePill: document.getElementById("route-pill"),
+        routeCount: document.getElementById("route-count"), mapHint: document.getElementById("map-hint"), list: document.getElementById("radar-list"),
+        radarTitle: document.getElementById("radar-title"), radarSummary: document.getElementById("radar-summary"), locationButton: document.getElementById("location-button"), clearButton: document.getElementById("clear-route-button"), swapButton: document.getElementById("swap-button")
+      };
+      document.getElementById("radar-count").textContent = radars.length;
+
+      const radarMarkers = new Map();
+      const state = { origin: null, destination: null, route: null, routeAlerts: [], selectedRadarId: null, userPosition: null, userMarker: null, accuracyCircle: null, routeLayer: null, originMarker: null, destinationMarker: null, watchId: null };
+      const debouncers = new Map();
+
+      function escapeHtml(value) { return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char])); }
+      function shortLabel(place) { return place.displayName.split(",").slice(0, 3).join(","); }
+      function formatDistance(meters) { return meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km`; }
+      function formatDuration(seconds) { const min = Math.max(1, Math.round(seconds / 60)); return min >= 60 ? `${Math.floor(min / 60)} h ${min % 60 ? `${min % 60} min` : ""}` : `${min} min`; }
+      function setMapHint(message, stateName = "default") { ui.mapHint.textContent = message; ui.mapHint.dataset.state = stateName; }
+      function setRouteCard(label, title, text, stateName = "idle") { ui.routeCard.dataset.state = stateName; ui.routeCard.innerHTML = `<span class="label">${escapeHtml(label)}</span><strong>${escapeHtml(title)}</strong><p>${escapeHtml(text)}</p>`; }
+
+      function divIcon(className) { return L.divIcon({ className: "", html: `<span class="${className}"></span>`, iconSize: [20, 20], iconAnchor: [10, 10], popupAnchor: [0, -12] }); }
+      function radarPopup(radar) { const direction = radar.direction ? ` · ${escapeHtml(radar.direction)}` : ""; return `<p class="popup-title">${escapeHtml(radar.name)}</p><p class="popup-text">${escapeHtml(radar.address)}</p><p class="popup-text">${escapeHtml(radar.kinds.join(" · "))}${direction}</p><p class="popup-limit">${radar.limit ? `${radar.limit} km/h` : "Fiscalização"}</p>`; }
+
+      function renderMarkers() {
+        const alertIds = new Set(state.routeAlerts.map((radar) => radar.id));
+        radars.forEach((radar) => {
+          const onRoute = alertIds.has(radar.id);
+          const marker = radarMarkers.get(radar.id);
+          marker.setIcon(divIcon(`radar-pin${onRoute ? " is-on-route" : ""}`));
+          marker.setZIndexOffset(onRoute ? 200 : 0);
+        });
+      }
+
+      function focusRadar(radar) {
+        state.selectedRadarId = radar.id;
+        map.flyTo([radar.lat, radar.lng], Math.max(map.getZoom(), 16), { duration: .45 });
+        radarMarkers.get(radar.id).openPopup();
+        renderRadarList();
+      }
+
+      function renderRadarList() {
+        const isRouteActive = Boolean(state.route);
+        const items = isRouteActive ? state.routeAlerts : [...radars].sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+        ui.list.replaceChildren();
+        ui.radarTitle.textContent = isRouteActive ? "Alertas no seu caminho" : "Locais cadastrados";
+        ui.radarSummary.textContent = isRouteActive ? "Apenas locais próximos do trajeto calculado." : "Relação de referência baseada na CET-Santos.";
+        ui.routeCount.textContent = isRouteActive ? `${items.length} ponto${items.length === 1 ? "" : "s"} próximo${items.length === 1 ? "" : "s"} da rota` : "Trace uma rota para filtrar";
+        if (!items.length) {
+          const empty = document.createElement("p"); empty.className = "empty-list"; empty.textContent = "Nenhum ponto da base de referência ficou próximo desta rota. Confira a sinalização da via."; ui.list.append(empty); return;
+        }
+        items.forEach((radar) => {
+          const card = document.createElement("button"); card.type = "button";
+          card.className = `radar-card${state.selectedRadarId === radar.id ? " is-selected" : ""}${isRouteActive ? " is-on-route" : ""}`;
+          card.setAttribute("aria-label", `Abrir ${radar.name} no mapa`);
+          const distance = isRouteActive && Number.isFinite(radar.routeDistance) ? `${formatDistance(radar.routeDistance)} da rota` : radar.limit ? `${radar.limit} km/h` : "Fiscalização";
+          card.innerHTML = `<span class="radar-row"><span class="radar-name">${escapeHtml(radar.name)}</span><span class="radar-distance">${escapeHtml(distance)}</span></span><span class="radar-address">${escapeHtml(radar.address)}</span><span class="radar-kind">${escapeHtml(radar.kinds.join(" · "))}</span>`;
+          card.addEventListener("click", () => focusRadar(radar)); ui.list.append(card);
+        });
+      }
+
+      radars.forEach((radar) => {
+        const marker = L.marker([radar.lat, radar.lng], { icon: divIcon("radar-pin"), keyboard: true, title: radar.name }).addTo(map).bindPopup(radarPopup(radar), { maxWidth: 290 });
+        marker.on("click", () => { state.selectedRadarId = radar.id; renderRadarList(); });
+        radarMarkers.set(radar.id, marker);
+      });
+
+      function pointToSegmentMeters(point, start, end) {
+        const latScale = 110540;
+        const lonScale = 111320 * Math.cos(((point.lat + start.lat + end.lat) / 3) * Math.PI / 180);
+        const bx = (end.lng - start.lng) * lonScale; const by = (end.lat - start.lat) * latScale;
+        const px = (point.lng - start.lng) * lonScale; const py = (point.lat - start.lat) * latScale;
+        const denominator = bx * bx + by * by;
+        const t = denominator ? Math.max(0, Math.min(1, (px * bx + py * by) / denominator)) : 0;
+        return Math.hypot(px - bx * t, py - by * t);
+      }
+      function distanceToRoute(point, coords) {
+        let nearest = Infinity;
+        for (let index = 0; index < coords.length - 1; index += 1) nearest = Math.min(nearest, pointToSegmentMeters(point, coords[index], coords[index + 1]));
+        return nearest;
+      }
+      function getRouteAlerts(coords) { return radars.map((radar) => ({ ...radar, routeDistance: distanceToRoute(radar, coords) })).filter((radar) => radar.routeDistance <= 190).sort((a, b) => a.routeDistance - b.routeDistance); }
+
+      async function searchPlaces(query, limit = 5) {
+        const url = new URL("https://nominatim.openstreetmap.org/search");
+        url.search = new URLSearchParams({ format: "jsonv2", limit: String(limit), countrycodes: "br", viewbox: "-46.55,-24.18,-46.05,-23.72", bounded: "1", q: query }).toString();
+        const response = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!response.ok) throw new Error("Busca de endereço indisponível");
+        const results = await response.json();
+        return results.map((item) => ({ lat: Number(item.lat), lng: Number(item.lon), displayName: item.display_name }));
+      }
+
+      function setSelectedPlace(kind, place) {
+        state[kind] = place;
+        ui[kind].value = shortLabel(place);
+        hideSuggestions(kind);
+      }
+      function hideSuggestions(kind) { const box = ui[`${kind}Suggestions`]; box.replaceChildren(); box.classList.remove("is-open"); }
+      function renderSuggestions(kind, places) {
+        const box = ui[`${kind}Suggestions`]; box.replaceChildren();
+        if (!places.length) { hideSuggestions(kind); return; }
+        places.forEach((place) => {
+          const option = document.createElement("button"); option.type = "button"; option.className = "suggestion"; option.setAttribute("role", "option");
+          option.innerHTML = `<strong>${escapeHtml(shortLabel(place))}</strong><span>${escapeHtml(place.displayName)}</span>`;
+          option.addEventListener("click", () => setSelectedPlace(kind, place)); box.append(option);
+        });
+        box.classList.add("is-open");
+      }
+      function queueSuggestions(kind) {
+        window.clearTimeout(debouncers.get(kind));
+        state[kind] = null;
+        const query = ui[kind].value.trim();
+        if (query.length < 3) { hideSuggestions(kind); return; }
+        debouncers.set(kind, window.setTimeout(async () => {
+          try { renderSuggestions(kind, await searchPlaces(query)); } catch { hideSuggestions(kind); }
+        }, 360));
+      }
+      ["origin", "destination"].forEach((kind) => {
+        ui[kind].addEventListener("input", () => queueSuggestions(kind));
+        ui[kind].addEventListener("focus", () => { if (ui[kind].value.trim().length >= 3 && !state[kind]) queueSuggestions(kind); });
+      });
+      document.addEventListener("click", (event) => { if (!event.target.closest(".field")) { hideSuggestions("origin"); hideSuggestions("destination"); } });
+
+      async function resolvePlace(kind) {
+        if (state[kind]) return state[kind];
+        const query = ui[kind].value.trim();
+        if (!query) throw new Error(kind === "origin" ? "Informe o ponto de partida." : "Informe o destino.");
+        const [place] = await searchPlaces(query, 1);
+        if (!place) throw new Error(`Não encontramos “${query}”. Tente colocar rua, bairro e cidade.`);
+        state[kind] = place; return place;
+      }
+
+      function updatePlaceMarkers() {
+        if (state.origin) { if (!state.originMarker) state.originMarker = L.marker([state.origin.lat, state.origin.lng], { icon: divIcon("start-marker") }).addTo(map).bindPopup("<strong>Partida</strong>"); else state.originMarker.setLatLng([state.origin.lat, state.origin.lng]); }
+        if (state.destination) { if (!state.destinationMarker) state.destinationMarker = L.marker([state.destination.lat, state.destination.lng], { icon: divIcon("end-marker") }).addTo(map).bindPopup("<strong>Destino</strong>"); else state.destinationMarker.setLatLng([state.destination.lat, state.destination.lng]); }
+      }
+
+      async function buildRoute() {
+        ui.routeButton.disabled = true; ui.routeButton.textContent = "Montando sua rota…";
+        setRouteCard("Calculando", "Buscando o melhor trajeto", "A rota e os alertas de fiscalização estão sendo preparados.", "loading");
+        try {
+          const [origin, destination] = await Promise.all([resolvePlace("origin"), resolvePlace("destination")]);
+          updatePlaceMarkers();
+          const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=full&geometries=geojson&steps=false`);
+          if (!response.ok) throw new Error("Não foi possível calcular essa rota agora.");
+          const data = await response.json(); const route = data.routes && data.routes[0];
+          if (!route || !route.geometry || !route.geometry.coordinates.length) throw new Error("Não encontramos uma rota de carro entre esses pontos.");
+          const coords = route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+          state.route = { ...route, coords }; state.routeAlerts = getRouteAlerts(coords); state.selectedRadarId = null;
+          if (state.routeLayer) state.routeLayer.remove();
+          state.routeLayer = L.polyline(coords.map((point) => [point.lat, point.lng]), { color: "#2d99f0", weight: 7, opacity: .93, lineCap: "round", lineJoin: "round" }).addTo(map);
+          map.fitBounds(state.routeLayer.getBounds(), { padding: [48, 48], maxZoom: 15 });
+          renderMarkers(); renderRadarList();
+          const alertText = `${state.routeAlerts.length} ponto${state.routeAlerts.length === 1 ? "" : "s"} de fiscalização próximo${state.routeAlerts.length === 1 ? "" : "s"} do caminho`;
+          const summary = `${formatDistance(route.distance)} · ${formatDuration(route.duration)} · ${alertText}`;
+          setRouteCard("Rota pronta", `${formatDistance(route.distance)} em cerca de ${formatDuration(route.duration)}`, alertText, "success");
+          ui.routePill.innerHTML = `<strong>${state.routeAlerts.length}</strong> alerta${state.routeAlerts.length === 1 ? "" : "s"} na rota`;
+          setMapHint(summary, state.routeAlerts.length ? "attention" : "default");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Não foi possível montar a rota agora.";
+          setRouteCard("Não foi possível traçar", "Revise os endereços", message, "error");
+          setMapHint(message, "error");
+        } finally { ui.routeButton.disabled = false; ui.routeButton.textContent = "Traçar rota e ver radares"; }
+      }
+
+      function clearRoute() {
+        state.route = null; state.routeAlerts = []; state.selectedRadarId = null;
+        if (state.routeLayer) { state.routeLayer.remove(); state.routeLayer = null; }
+        if (state.originMarker) { state.originMarker.remove(); state.originMarker = null; }
+        if (state.destinationMarker) { state.destinationMarker.remove(); state.destinationMarker = null; }
+        state.origin = null; state.destination = null; ui.origin.value = ""; ui.destination.value = "";
+        renderMarkers(); renderRadarList(); map.flyTo(santosCenter, 13, { duration: .45 });
+        ui.routePill.textContent = "Sem rota ativa"; setMapHint("Digite uma origem e um destino para filtrar os radares que ficam no seu caminho.");
+        setRouteCard("Como usar", "Escolha origem e destino", "Você verá o caminho, a distância estimada e apenas os radares próximos desse percurso.");
+      }
+
+      function updateUserPosition(position) {
+        state.userPosition = { lat: position.coords.latitude, lng: position.coords.longitude, displayName: "Minha localização" };
+        const latLng = [state.userPosition.lat, state.userPosition.lng];
+        if (!state.userMarker) { state.userMarker = L.marker(latLng, { icon: divIcon("user-marker") }).addTo(map).bindPopup("<strong>Sua localização</strong>"); state.accuracyCircle = L.circle(latLng, { color: "#4e9cff", weight: 1, fillColor: "#4e9cff", fillOpacity: .11 }).addTo(map); }
+        else { state.userMarker.setLatLng(latLng); state.accuracyCircle.setLatLng(latLng); }
+        state.accuracyCircle.setRadius(Math.max(10, position.coords.accuracy || 20));
+        setSelectedPlace("origin", state.userPosition); map.flyTo(latLng, 15, { duration: .5 });
+        setMapHint("Sua localização foi definida como ponto de partida. Agora escolha o destino.");
+        ui.locationButton.textContent = "⌖ Localização ativa";
+      }
+      function getLocationError(error) { if (error.code === error.PERMISSION_DENIED) return "A localização foi bloqueada pelo navegador."; if (error.code === error.POSITION_UNAVAILABLE) return "Não foi possível identificar sua localização agora."; return "A localização demorou demais. Tente novamente."; }
+      function useLocation() {
+        if (!navigator.geolocation) { setMapHint("Este navegador não oferece localização.", "error"); return; }
+        ui.locationButton.disabled = true; ui.locationButton.textContent = "Localizando…";
+        navigator.geolocation.getCurrentPosition((position) => { updateUserPosition(position); ui.locationButton.disabled = false; if (state.watchId === null) state.watchId = navigator.geolocation.watchPosition((next) => { if (state.userPosition) { state.userPosition = { ...state.userPosition, lat: next.coords.latitude, lng: next.coords.longitude }; state.userMarker.setLatLng([state.userPosition.lat, state.userPosition.lng]); state.accuracyCircle.setLatLng([state.userPosition.lat, state.userPosition.lng]).setRadius(next.coords.accuracy || 20); } }, () => {}, { enableHighAccuracy: true, maximumAge: 10000, timeout: 18000 }); }, (error) => { ui.locationButton.disabled = false; ui.locationButton.textContent = "⌖ Usar minha localização"; setMapHint(getLocationError(error), "error"); }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 18000 });
+      }
+
+      ui.form.addEventListener("submit", (event) => { event.preventDefault(); buildRoute(); });
+      ui.locationButton.addEventListener("click", useLocation);
+      ui.clearButton.addEventListener("click", clearRoute);
+      ui.swapButton.addEventListener("click", () => {
+        const originValue = ui.origin.value; ui.origin.value = ui.destination.value; ui.destination.value = originValue;
+        const originPlace = state.origin; state.origin = state.destination; state.destination = originPlace;
+        hideSuggestions("origin"); hideSuggestions("destination");
+      });
+      renderRadarList();
+      requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+      window.addEventListener("load", () => map.invalidateSize({ pan: false }), { once: true });
+      window.addEventListener("resize", () => map.invalidateSize({ pan: false }));
+      if ("ResizeObserver" in window) new ResizeObserver(() => map.invalidateSize({ pan: false })).observe(document.getElementById("map"));
+    </script>
+  </body>
+</html>
